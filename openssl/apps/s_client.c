@@ -166,6 +166,7 @@ typedef unsigned int u_int;
 #ifndef OPENSSL_NO_SRP
 #include <openssl/srp.h>
 #endif
+#include <openssl/dane.h>
 #include "s_apps.h"
 #include "timeouts.h"
 
@@ -357,6 +358,8 @@ static void sc_usage(void)
 	BIO_printf(bio_err," -tlsextdebug      - hex dump of all TLS extensions received\n");
 	BIO_printf(bio_err," -status           - request certificate status from server\n");
 	BIO_printf(bio_err," -no_ticket        - disable use of RFC4507bis session tickets\n");
+	BIO_printf(bio_err," -dane         - enable use of DANE\n");
+	BIO_printf(bio_err," -danecb         - enable use of DANE using callback\n");
 # ifndef OPENSSL_NO_NEXTPROTONEG
 	BIO_printf(bio_err," -nextprotoneg arg - enable NPN extension, considering named protocols supported (comma-separated list)\n");
 # endif
@@ -574,6 +577,8 @@ int MAIN(int argc, char **argv)
 	char *CApath=NULL,*CAfile=NULL,*cipher=NULL;
 	int reconnect=0,badop=0,verify=SSL_VERIFY_NONE,bugs=0;
 	int crlf=0;
+	int dane=0;
+	int danecb=0;
 	int write_tty,read_tty,write_ssl,read_ssl,tty_on,ssl_pending;
 	SSL_CTX *ctx=NULL;
 	int ret=1,in_init=1,i,nbio_test=0;
@@ -749,6 +754,10 @@ int MAIN(int argc, char **argv)
 			nbio_test=1;
 		else if	(strcmp(*argv,"-state") == 0)
 			state=1;
+		else if	(strcmp(*argv,"-dane") == 0)
+			dane=1;
+		else if	(strcmp(*argv,"-danecb") == 0)
+			danecb=1;
 #ifndef OPENSSL_NO_PSK
                 else if (strcmp(*argv,"-psk_identity") == 0)
 			{
@@ -1169,7 +1178,10 @@ bad:
 		SSL_CTX_set_cipher_list(ctx,getenv("SSL_CIPHER"));
 #endif
 
-	SSL_CTX_set_verify(ctx,verify,verify_callback);
+	if (danecb)
+		SSL_CTX_set_verify(ctx,verify,dane_verify_cb);
+	else
+		SSL_CTX_set_verify(ctx,verify,verify_callback);
 	if (!set_cert_key_stuff(ctx,cert,key))
 		goto end;
 
@@ -1504,6 +1516,12 @@ SSL_set_tlsext_status_ids(con, ids);
 			timeoutp = &timeout;
 		else
 			timeoutp = NULL;
+			
+		if (dane) {
+			if (dane_verify(con, host, port) < 0) {
+				BIO_printf(bio_err, "DANE failed verification\n");
+			}
+		}
 
 		if (SSL_in_init(con) && !SSL_total_renegotiations(con))
 			{
